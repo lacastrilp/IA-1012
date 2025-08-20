@@ -1,10 +1,11 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import seaborn as sns
 import matplotlib.pyplot as plt
+import seaborn as sns
+
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, ConfusionMatrixDisplay
 from sklearn.tree import DecisionTreeClassifier, plot_tree
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
@@ -12,124 +13,143 @@ from sklearn.svm import SVC
 from sklearn.linear_model import LogisticRegression
 
 # ===============================
-# 1. CARGA DE DATOS
+# 📌 Función para cargar dataset
 # ===============================
-st.title("📊 Clasificación Interactiva con Varios Modelos")
+st.title("🔍 Clasificación Interactiva con ML")
 
-st.sidebar.header("Carga de datos")
-uploaded_file = st.sidebar.file_uploader("Sube un archivo CSV", type=["csv"])
-url = st.sidebar.text_input("O pega la URL de un CSV en GitHub/Cloud:")
+st.sidebar.header("Carga de Datos")
+option = st.sidebar.radio("Selecciona fuente de datos:", ["📂 Subir CSV", "🌐 Desde URL/GitHub"])
 
-if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
-elif url:
-    df = pd.read_csv(url)
+if option == "📂 Subir CSV":
+    uploaded_file = st.sidebar.file_uploader("Sube un archivo CSV", type=["csv"])
+    if uploaded_file is not None:
+        df = pd.read_csv(uploaded_file)
+    else:
+        st.stop()
 else:
-    st.warning("Por favor sube un archivo o pega un enlace de un CSV.")
-    st.stop()
+    url = st.sidebar.text_input("Ingresa URL de un CSV (GitHub/raw o nube)")
+    if url:
+        try:
+            df = pd.read_csv(url)
+        except Exception as e:
+            st.error(f"Error al cargar: {e}")
+            st.stop()
+    else:
+        st.stop()
 
-st.write("### Vista previa de los datos")
+st.subheader("📊 Vista previa de los datos")
 st.dataframe(df.head())
 
 # ===============================
-# 2. EDA
+# 📌 EDA rápido
 # ===============================
-st.write("## 🔍 Análisis Exploratorio de Datos (EDA)")
+st.subheader("📈 Análisis Exploratorio de Datos (EDA)")
 
-st.write("**Información general:**")
-st.write(df.describe())
+if st.checkbox("Mostrar información general"):
+    st.write(df.describe())
+    st.write("Valores nulos por columna:", df.isnull().sum())
 
-st.write("**Valores nulos:**")
-st.write(df.isnull().sum())
+if st.checkbox("Distribución de variables"):
+    col = st.selectbox("Selecciona columna para graficar", df.columns)
+    fig, ax = plt.subplots()
+    sns.histplot(df[col], kde=True, ax=ax)
+    st.pyplot(fig)
 
-st.write("**Distribución de las variables numéricas:**")
-st.bar_chart(df.select_dtypes(include=np.number).iloc[:, :5])  # primeras 5
-
-# Heatmap de correlación
-if df.select_dtypes(include=np.number).shape[1] > 1:
-    st.write("**Mapa de correlación**")
+if st.checkbox("Matriz de correlación"):
     fig, ax = plt.subplots(figsize=(8,6))
-    sns.heatmap(df.corr(), annot=False, cmap="coolwarm", ax=ax)
+    sns.heatmap(df.corr(numeric_only=True), annot=False, cmap="coolwarm", ax=ax)
     st.pyplot(fig)
 
 # ===============================
-# 3. SELECCIÓN DE VARIABLES
+# 📌 Selección de variables
 # ===============================
-st.sidebar.header("Selección de variables")
-target_col = st.sidebar.selectbox("Selecciona la variable objetivo", df.columns)
-feature_cols = st.sidebar.multiselect(
-    "Selecciona las variables predictoras",
-    [col for col in df.columns if col != target_col]
-)
+st.sidebar.header("Configuración del modelo")
 
-if not feature_cols:
-    st.warning("Debes seleccionar al menos una variable predictora.")
+target = st.sidebar.selectbox("Selecciona la variable objetivo (target)", df.columns)
+features = st.sidebar.multiselect("Selecciona las variables predictoras", [c for c in df.columns if c != target])
+
+if not features:
+    st.warning("⚠️ Selecciona al menos una variable predictora")
     st.stop()
 
-X = df[feature_cols]
-y = df[target_col]
+X = df[features]
+y = df[target]
 
 # ===============================
-# 4. DIVISIÓN DE DATOS
+# 📌 División de datos
 # ===============================
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
+test_size = st.sidebar.slider("Tamaño del conjunto de prueba (%)", 10, 50, 30, step=5)
+
+# Verificamos si y es categórico
+if y.nunique() < 20:
+    stratify = y
+else:
+    stratify = None
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=test_size/100, random_state=42, stratify=stratify
+)
 
 # ===============================
-# 5. MODELOS DISPONIBLES
+# 📌 Selección de modelo
 # ===============================
-st.sidebar.header("Modelos de clasificación")
+st.sidebar.subheader("Modelo de Clasificación")
 model_choice = st.sidebar.selectbox(
-    "Selecciona un modelo",
+    "¿Qué modelo quieres usar?",
     ["Árbol de Decisión", "Naive Bayes", "K-Vecinos Cercanos (KNN)", "Máquina de Vectores de Soporte (SVC)", "Regresión Logística"]
 )
 
 # ===============================
-# 6. ENTRENAMIENTO SEGÚN MODELO
+# 📌 Hiperparámetros dinámicos
 # ===============================
 if model_choice == "Árbol de Decisión":
-    max_depth = st.sidebar.slider("Profundidad máxima", 1, 20, 3)
-    clf = DecisionTreeClassifier(max_depth=max_depth, random_state=42)
-    clf.fit(X_train, y_train)
-    y_pred = clf.predict(X_test)
-
-    st.write("## 🌳 Visualización del Árbol de Decisión")
-    fig, ax = plt.subplots(figsize=(12, 8))
-    plot_tree(clf, feature_names=feature_cols, class_names=[str(c) for c in y.unique()],
-              filled=True, rounded=True, fontsize=8, ax=ax)
-    st.pyplot(fig)
+    max_depth = st.sidebar.slider("Profundidad máxima", 1, 20, 5)
+    criterion = st.sidebar.selectbox("Criterio", ["gini", "entropy", "log_loss"])
+    model = DecisionTreeClassifier(max_depth=max_depth, criterion=criterion, random_state=42)
 
 elif model_choice == "Naive Bayes":
-    clf = GaussianNB(var_smoothing=1e-9)
-    clf.fit(X_train, y_train)
-    y_pred = clf.predict(X_test)
+    var_smoothing = st.sidebar.slider("Var smoothing (escala log)", -12, -3, -9)
+    model = GaussianNB(var_smoothing=10**var_smoothing)
 
 elif model_choice == "K-Vecinos Cercanos (KNN)":
-    k = st.sidebar.slider("Número de vecinos (k)", 1, 20, 5)
-    clf = KNeighborsClassifier(n_neighbors=k)
-    clf.fit(X_train, y_train)
-    y_pred = clf.predict(X_test)
+    n_neighbors = st.sidebar.slider("Número de vecinos (k)", 1, 20, 5)
+    weights = st.sidebar.selectbox("Ponderación", ["uniform", "distance"])
+    model = KNeighborsClassifier(n_neighbors=n_neighbors, weights=weights)
 
 elif model_choice == "Máquina de Vectores de Soporte (SVC)":
-    kernel = st.sidebar.selectbox("Kernel", ["linear", "rbf", "poly", "sigmoid"])
     C = st.sidebar.slider("Parámetro C", 0.01, 10.0, 1.0)
-    clf = SVC(kernel=kernel, C=C)
-    clf.fit(X_train, y_train)
-    y_pred = clf.predict(X_test)
+    kernel = st.sidebar.selectbox("Kernel", ["linear", "rbf", "poly", "sigmoid"])
+    model = SVC(C=C, kernel=kernel)
 
 elif model_choice == "Regresión Logística":
-    max_iter = st.sidebar.slider("Número máximo de iteraciones", 50, 500, 100)
-    clf = LogisticRegression(max_iter=max_iter)
-    clf.fit(X_train, y_train)
-    y_pred = clf.predict(X_test)
+    C = st.sidebar.slider("Parámetro C (regularización inversa)", 0.01, 10.0, 1.0)
+    max_iter = st.sidebar.slider("Iteraciones máximas", 100, 1000, 300)
+    model = LogisticRegression(C=C, max_iter=max_iter)
 
 # ===============================
-# 7. RESULTADOS
+# 📌 Entrenamiento
 # ===============================
-st.write("## 📈 Resultados del modelo")
+model.fit(X_train, y_train)
+y_pred = model.predict(X_test)
+
+# ===============================
+# 📌 Resultados
+# ===============================
+st.subheader("📌 Resultados del Modelo")
+
+st.write("**Exactitud (Accuracy):**", accuracy_score(y_test, y_pred))
 st.text("Reporte de Clasificación:")
 st.text(classification_report(y_test, y_pred))
 
-cm = confusion_matrix(y_test, y_pred)
 fig, ax = plt.subplots()
-ConfusionMatrixDisplay(cm).plot(ax=ax)
+ConfusionMatrixDisplay.from_estimator(model, X_test, y_test, ax=ax, cmap="Blues")
 st.pyplot(fig)
+
+# ===============================
+# 📌 Visualización del Árbol
+# ===============================
+if model_choice == "Árbol de Decisión":
+    st.subheader("🌳 Visualización del Árbol de Decisión")
+    fig, ax = plt.subplots(figsize=(12, 6))
+    plot_tree(model, feature_names=features, class_names=[str(c) for c in y.unique()], filled=True, ax=ax)
+    st.pyplot(fig)
