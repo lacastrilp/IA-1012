@@ -1,93 +1,135 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression, LinearRegression
-from sklearn.metrics import accuracy_score, confusion_matrix, classification_report, mean_squared_error, r2_score
-from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay
+from sklearn.tree import DecisionTreeClassifier, plot_tree
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from sklearn.linear_model import LogisticRegression
 
-st.title("🔎 Clasificación o Regresión Automática")
+# ===============================
+# 1. CARGA DE DATOS
+# ===============================
+st.title("📊 Clasificación Interactiva con Varios Modelos")
 
-# Subir archivo CSV
-uploaded_file = st.file_uploader("📂 Sube un archivo CSV", type="csv")
+st.sidebar.header("Carga de datos")
+uploaded_file = st.sidebar.file_uploader("Sube un archivo CSV", type=["csv"])
+url = st.sidebar.text_input("O pega la URL de un CSV en GitHub/Cloud:")
 
 if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
-    st.write("✅ Datos cargados:")
-    st.dataframe(df.head())
+elif url:
+    df = pd.read_csv(url)
+else:
+    st.warning("Por favor sube un archivo o pega un enlace de un CSV.")
+    st.stop()
 
-    # Seleccionar variable objetivo y predictoras
-    target = st.selectbox("🎯 Selecciona la variable objetivo (target)", df.columns)
-    features = st.multiselect("📊 Selecciona las variables predictoras", [col for col in df.columns if col != target])
+st.write("### Vista previa de los datos")
+st.dataframe(df.head())
 
-    if target and features:
-        X = df[features]
-        y = df[target]
+# ===============================
+# 2. EDA
+# ===============================
+st.write("## 🔍 Análisis Exploratorio de Datos (EDA)")
 
-        # Detectar si es clasificación o regresión
-        n_unique = y.nunique()
-        is_classification = (y.dtype == 'object') or (n_unique < 20)
+st.write("**Información general:**")
+st.write(df.describe())
 
-        test_size = st.slider("📏 Tamaño del conjunto de prueba (%)", 10, 50, 30)
+st.write("**Valores nulos:**")
+st.write(df.isnull().sum())
 
-        # Dividir datos
-        try:
-            if is_classification:
-                st.info("🔵 Se detectó un problema de **clasificación**.")
-                X_train, X_test, y_train, y_test = train_test_split(
-                    X, y, test_size=test_size/100, random_state=42, stratify=y
-                )
-            else:
-                st.info("🟢 Se detectó un problema de **regresión**.")
-                X_train, X_test, y_train, y_test = train_test_split(
-                    X, y, test_size=test_size/100, random_state=42
-                )
-        except ValueError as e:
-            st.error(f"⚠️ Error al dividir los datos: {e}")
-            st.stop()
+st.write("**Distribución de las variables numéricas:**")
+st.bar_chart(df.select_dtypes(include=np.number).iloc[:, :5])  # primeras 5
 
-        # Escalado solo para modelos que lo requieran
-        scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
-        X_test_scaled = scaler.transform(X_test)
+# Heatmap de correlación
+if df.select_dtypes(include=np.number).shape[1] > 1:
+    st.write("**Mapa de correlación**")
+    fig, ax = plt.subplots(figsize=(8,6))
+    sns.heatmap(df.corr(), annot=False, cmap="coolwarm", ax=ax)
+    st.pyplot(fig)
 
-        st.subheader("⚙️ Entrenando modelo...")
+# ===============================
+# 3. SELECCIÓN DE VARIABLES
+# ===============================
+st.sidebar.header("Selección de variables")
+target_col = st.sidebar.selectbox("Selecciona la variable objetivo", df.columns)
+feature_cols = st.sidebar.multiselect(
+    "Selecciona las variables predictoras",
+    [col for col in df.columns if col != target_col]
+)
 
-        if is_classification:
-            # Modelos de clasificación
-            models = {
-                "Logistic Regression": LogisticRegression(max_iter=500),
-                "Decision Tree": DecisionTreeClassifier(),
-                "Random Forest": RandomForestClassifier()
-            }
-        else:
-            # Modelos de regresión
-            models = {
-                "Linear Regression": LinearRegression(),
-                "Decision Tree Regressor": DecisionTreeRegressor(),
-                "Random Forest Regressor": RandomForestRegressor()
-            }
+if not feature_cols:
+    st.warning("Debes seleccionar al menos una variable predictora.")
+    st.stop()
 
-        results = {}
+X = df[feature_cols]
+y = df[target_col]
 
-        for name, model in models.items():
-            if "Regression" in name or "Regressor" in name:
-                model.fit(X_train_scaled, y_train)
-                y_pred = model.predict(X_test_scaled)
-                mse = mean_squared_error(y_test, y_pred)
-                r2 = r2_score(y_test, y_pred)
-                results[name] = {"MSE": mse, "R2": r2}
-            else:
-                model.fit(X_train_scaled, y_train)
-                y_pred = model.predict(X_test_scaled)
-                acc = accuracy_score(y_test, y_pred)
-                results[name] = {"Accuracy": acc}
+# ===============================
+# 4. DIVISIÓN DE DATOS
+# ===============================
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
 
-        st.subheader("📊 Resultados")
+# ===============================
+# 5. MODELOS DISPONIBLES
+# ===============================
+st.sidebar.header("Modelos de clasificación")
+model_choice = st.sidebar.selectbox(
+    "Selecciona un modelo",
+    ["Árbol de Decisión", "Naive Bayes", "K-Vecinos Cercanos (KNN)", "Máquina de Vectores de Soporte (SVC)", "Regresión Logística"]
+)
 
-        if is_classification:
-            st.write(pd.DataFrame(results).T)
-        else:
-            st.write(pd.DataFrame(results).T)
+# ===============================
+# 6. ENTRENAMIENTO SEGÚN MODELO
+# ===============================
+if model_choice == "Árbol de Decisión":
+    max_depth = st.sidebar.slider("Profundidad máxima", 1, 20, 3)
+    clf = DecisionTreeClassifier(max_depth=max_depth, random_state=42)
+    clf.fit(X_train, y_train)
+    y_pred = clf.predict(X_test)
+
+    st.write("## 🌳 Visualización del Árbol de Decisión")
+    fig, ax = plt.subplots(figsize=(12, 8))
+    plot_tree(clf, feature_names=feature_cols, class_names=[str(c) for c in y.unique()],
+              filled=True, rounded=True, fontsize=8, ax=ax)
+    st.pyplot(fig)
+
+elif model_choice == "Naive Bayes":
+    clf = GaussianNB(var_smoothing=1e-9)
+    clf.fit(X_train, y_train)
+    y_pred = clf.predict(X_test)
+
+elif model_choice == "K-Vecinos Cercanos (KNN)":
+    k = st.sidebar.slider("Número de vecinos (k)", 1, 20, 5)
+    clf = KNeighborsClassifier(n_neighbors=k)
+    clf.fit(X_train, y_train)
+    y_pred = clf.predict(X_test)
+
+elif model_choice == "Máquina de Vectores de Soporte (SVC)":
+    kernel = st.sidebar.selectbox("Kernel", ["linear", "rbf", "poly", "sigmoid"])
+    C = st.sidebar.slider("Parámetro C", 0.01, 10.0, 1.0)
+    clf = SVC(kernel=kernel, C=C)
+    clf.fit(X_train, y_train)
+    y_pred = clf.predict(X_test)
+
+elif model_choice == "Regresión Logística":
+    max_iter = st.sidebar.slider("Número máximo de iteraciones", 50, 500, 100)
+    clf = LogisticRegression(max_iter=max_iter)
+    clf.fit(X_train, y_train)
+    y_pred = clf.predict(X_test)
+
+# ===============================
+# 7. RESULTADOS
+# ===============================
+st.write("## 📈 Resultados del modelo")
+st.text("Reporte de Clasificación:")
+st.text(classification_report(y_test, y_pred))
+
+cm = confusion_matrix(y_test, y_pred)
+fig, ax = plt.subplots()
+ConfusionMatrixDisplay(cm).plot(ax=ax)
+st.pyplot(fig)
