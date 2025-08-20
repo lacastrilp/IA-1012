@@ -41,6 +41,32 @@ st.subheader("📊 Vista previa de los datos")
 st.dataframe(df.head())
 
 # ===============================
+# 📌 Preprocesamiento de Datos
+# ===============================
+st.subheader("🧹 Preprocesamiento de Datos")
+
+# Eliminar duplicados
+df = df.drop_duplicates()
+
+# Rellenar valores nulos
+df = df.fillna(df.mean(numeric_only=True))   # media en numéricas
+df = df.fillna("desconocido")                # "desconocido" en categóricas
+
+# Detección y tratamiento de atípicos en columnas numéricas
+num_cols = df.select_dtypes(include=np.number).columns
+for col in num_cols:
+    Q1 = df[col].quantile(0.25)
+    Q3 = df[col].quantile(0.75)
+    IQR = Q3 - Q1
+    lower = Q1 - 1.5 * IQR
+    upper = Q3 + 1.5 * IQR
+    df[col] = np.where(df[col] < lower, lower,
+              np.where(df[col] > upper, upper, df[col]))
+
+st.write("✅ Datos preprocesados (sin nulos, sin duplicados, atípicos tratados):")
+st.dataframe(df.head())
+
+# ===============================
 # 📌 EDA rápido
 # ===============================
 st.subheader("📈 Análisis Exploratorio de Datos (EDA)")
@@ -72,15 +98,17 @@ if not features:
     st.warning("⚠️ Selecciona al menos una variable predictora")
     st.stop()
 
-X = df[features]
-y = df[target]
+# Convertir categóricas a numéricas (OneHot Encoding)
+X = pd.get_dummies(df[features], drop_first=True)
+
+# Asegurarse de que y sea categórica
+y = df[target].astype(str)
 
 # ===============================
 # 📌 División de datos
 # ===============================
 test_size = st.sidebar.slider("Tamaño del conjunto de prueba (%)", 10, 50, 30, step=5)
 
-# Verificamos si y es categórico
 if y.nunique() < 20:
     stratify = y
 else:
@@ -151,5 +179,5 @@ st.pyplot(fig)
 if model_choice == "Árbol de Decisión":
     st.subheader("🌳 Visualización del Árbol de Decisión")
     fig, ax = plt.subplots(figsize=(12, 6))
-    plot_tree(model, feature_names=features, class_names=[str(c) for c in y.unique()], filled=True, ax=ax)
+    plot_tree(model, feature_names=X.columns, class_names=[str(c) for c in y.unique()], filled=True, ax=ax)
     st.pyplot(fig)
