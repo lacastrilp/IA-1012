@@ -1,161 +1,151 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-from sklearn.datasets import make_classification
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
-from sklearn.metrics import accuracy_score, confusion_matrix
-
-# Clasificadores
 from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
 
+st.set_page_config(page_title="Clasificadores ML", layout="wide")
 
-st.set_page_config(page_title="Clasificadores Interactivos", layout="wide")
-st.title("🧠 Clasificadores Interactivos con Streamlit")
+st.title("🔎 Clasificación con varios algoritmos")
 
 # ===============================
-# Cargar dataset
+# Subida de dataset
 # ===============================
-st.sidebar.header("📂 Datos")
-uploaded_file = st.sidebar.file_uploader("Sube un archivo CSV", type=["csv"])
-github_url = st.sidebar.text_input("O pega URL de un CSV en GitHub/Drive")
+st.sidebar.header("📂 Cargar Datos")
 
-if uploaded_file is not None:
-    data = pd.read_csv(uploaded_file)
-    st.success("✅ CSV cargado desde tu PC")
-elif github_url:
-    try:
-        data = pd.read_csv(github_url)
-        st.success("✅ CSV cargado desde URL")
-    except:
-        st.error("❌ Error al cargar desde la URL")
-        data = None
-else:
-    # Dataset simulado por defecto
+opcion_datos = st.sidebar.radio(
+    "Elige cómo cargar los datos:",
+    ("Dataset de ejemplo", "Subir archivo CSV", "Desde URL")
+)
+
+if opcion_datos == "Dataset de ejemplo":
+    from sklearn.datasets import make_classification
     X, y = make_classification(
-        n_samples=300, n_features=6, n_classes=2,
-        n_informative=4, random_state=42
+        n_samples=300, n_features=6, n_classes=2, random_state=42
     )
-    data = pd.DataFrame(X, columns=[f"feature_{i}" for i in range(6)])
-    data["target"] = y
-    st.info("📊 Usando dataset simulado (300x6)")
+    df = pd.DataFrame(X, columns=[f"Feature_{i}" for i in range(X.shape[1])])
+    df["target"] = y
+
+elif opcion_datos == "Subir archivo CSV":
+    archivo = st.sidebar.file_uploader("Sube un CSV", type=["csv"])
+    if archivo is not None:
+        df = pd.read_csv(archivo)
+    else:
+        st.stop()
+
+else:  # Desde URL
+    url = st.sidebar.text_input("Ingresa la URL del CSV (GitHub/raw o nube)")
+    if url:
+        try:
+            df = pd.read_csv(url)
+        except Exception as e:
+            st.error(f"Error cargando dataset desde URL: {e}")
+            st.stop()
+    else:
+        st.stop()
 
 st.write("### Vista previa de los datos")
-st.dataframe(data.head())
+st.dataframe(df.head())
 
 # ===============================
 # Selección de variables
 # ===============================
-features = st.multiselect(
-    "Selecciona las variables predictoras:",
-    options=data.columns[:-1].tolist(),
-    default=data.columns[:-1].tolist()
-)
+st.sidebar.header("⚙️ Configuración del modelo")
 
-target = st.selectbox("Selecciona la variable objetivo:", options=data.columns)
+col_target = st.sidebar.selectbox("Selecciona la variable objetivo (target)", df.columns)
 
-X = data[features].values
-y = data[target].values
-
-# ===============================
 # Validación de variable objetivo
-# ===============================
-unique_classes = np.unique(y)
+y = df[col_target].values
+n_clases = len(np.unique(y))
 
-if len(unique_classes) < 2:
-    st.error("❌ La variable objetivo debe tener al menos 2 clases diferentes.")
+if n_clases < 2:
+    st.error("❌ El target debe tener al menos 2 clases.")
     st.stop()
-elif len(unique_classes) > 20:
-    st.warning("⚠️ La variable objetivo tiene muchas clases. ¿Seguro que es un problema de clasificación?")
 
-# ===============================
-# Train-test split (con validación de stratify)
-# ===============================
-test_size = st.sidebar.slider("Proporción de Test (%)", 10, 50, 30, step=5)
+if pd.api.types.is_numeric_dtype(y) and n_clases > 20:
+    st.warning("⚠️ El target parece numérico con muchos valores distintos. Revisa si es realmente clasificación o regresión.")
 
-try:
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size/100, random_state=42, stratify=y
-    )
-except ValueError:
-    st.warning("⚠️ No se pudo usar 'stratify' porque alguna clase es muy pequeña. Usando división normal.")
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size/100, random_state=42
-    )
+clase_counts = pd.Series(y).value_counts()
+if clase_counts.min() < 5:
+    st.warning(f"⚠️ La clase con menos muestras tiene solo {clase_counts.min()} registros. Esto puede afectar el entrenamiento.")
 
-# Escalado
-scaler = StandardScaler()
-X_train = scaler.fit_transform(X_train)
-X_test = scaler.transform(X_test)
-
-# ===============================
-# Selección de modelo
-# ===============================
-st.sidebar.header("⚙️ Modelo")
-model_choice = st.sidebar.selectbox(
-    "Elige un clasificador:",
-    ["Naive Bayes", "Árbol de Decisión", "KNN", "SVM", "Regresión Logística"]
+# Features disponibles (excluyendo target)
+features = st.sidebar.multiselect(
+    "Selecciona las variables predictoras",
+    [col for col in df.columns if col != col_target],
+    default=[col for col in df.columns if col != col_target][:5]
 )
 
-if model_choice == "Naive Bayes":
-    var_smoothing = st.sidebar.slider("var_smoothing", 1e-12, 1e-2, 1e-9, step=1e-12, format="%.0e")
+if len(features) == 0:
+    st.error("❌ Debes seleccionar al menos una variable predictora.")
+    st.stop()
+
+X = df[features].values
+
+# ===============================
+# División train/test
+# ===============================
+test_size = st.sidebar.slider("Tamaño del conjunto de prueba (%)", 10, 50, 30, step=5)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=test_size/100, random_state=42, stratify=y
+)
+
+# ===============================
+# Selección del modelo
+# ===============================
+clasificador = st.sidebar.selectbox(
+    "Elige el algoritmo",
+    ["Naive Bayes", "Árbol de Decisión", "KNN", "SVC", "Regresión Logística"]
+)
+
+# ===============================
+# Hiperparámetros por modelo
+# ===============================
+if clasificador == "Naive Bayes":
+    var_smoothing = st.sidebar.number_input("Var smoothing", 1e-12, 1e-6, 1e-9, format="%.1e")
     model = GaussianNB(var_smoothing=var_smoothing)
 
-elif model_choice == "Árbol de Decisión":
+elif clasificador == "Árbol de Decisión":
     max_depth = st.sidebar.slider("Profundidad máxima", 1, 20, 5)
-    criterion = st.sidebar.selectbox("Criterio", ["gini", "entropy", "log_loss"])
+    criterion = st.sidebar.selectbox("Criterio", ["gini", "entropy"])
     model = DecisionTreeClassifier(max_depth=max_depth, criterion=criterion, random_state=42)
 
-elif model_choice == "KNN":
-    n_neighbors = st.sidebar.slider("Número de vecinos (k)", 1, 20, 5)
-    weights = st.sidebar.selectbox("Pesos", ["uniform", "distance"])
-    model = KNeighborsClassifier(n_neighbors=n_neighbors, weights=weights)
+elif clasificador == "KNN":
+    n_neighbors = st.sidebar.slider("Número de vecinos", 1, 20, 5)
+    model = KNeighborsClassifier(n_neighbors=n_neighbors)
 
-elif model_choice == "SVM":
-    C = st.sidebar.slider("C", 0.01, 10.0, 1.0)
+elif clasificador == "SVC":
+    C = st.sidebar.slider("Parámetro C", 0.01, 10.0, 1.0)
     kernel = st.sidebar.selectbox("Kernel", ["linear", "rbf", "poly", "sigmoid"])
     model = SVC(C=C, kernel=kernel, probability=True, random_state=42)
 
-elif model_choice == "Regresión Logística":
-    C = st.sidebar.slider("C", 0.01, 10.0, 1.0)
-    penalty = st.sidebar.selectbox("Penalización", ["l2", "none"])
-    solver = st.sidebar.selectbox("Solver", ["lbfgs", "liblinear", "saga"])
-    model = LogisticRegression(C=C, penalty=penalty, solver=solver, max_iter=1000, random_state=42)
+elif clasificador == "Regresión Logística":
+    C = st.sidebar.slider("Parámetro C", 0.01, 10.0, 1.0)
+    max_iter = st.sidebar.slider("Máx. iteraciones", 100, 1000, 200, step=50)
+    model = LogisticRegression(C=C, max_iter=max_iter, random_state=42)
 
 # ===============================
-# Entrenar y evaluar
+# Entrenamiento y evaluación
 # ===============================
 model.fit(X_train, y_train)
 y_pred = model.predict(X_test)
 
-acc = accuracy_score(y_test, y_pred)
-st.metric("Accuracy", f"{acc:.2%}")
+st.subheader("📊 Resultados")
+st.write("**Exactitud:**", accuracy_score(y_test, y_pred))
+st.text("Reporte de Clasificación:")
+st.text(classification_report(y_test, y_pred))
 
 # Matriz de confusión
-cm = confusion_matrix(y_test, y_pred)
+st.subheader("Matriz de Confusión")
 fig, ax = plt.subplots()
-sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", ax=ax)
-ax.set_xlabel("Predicho")
+sns.heatmap(confusion_matrix(y_test, y_pred), annot=True, fmt="d", cmap="Blues", ax=ax)
+ax.set_xlabel("Predicción")
 ax.set_ylabel("Real")
 st.pyplot(fig)
-
-# ===============================
-# Visualización 2D con PCA
-# ===============================
-if len(features) > 2:
-    st.write("### Reducción PCA para visualización 2D")
-    pca = PCA(n_components=2)
-    X_pca = pca.fit_transform(X_test)
-    fig, ax = plt.subplots()
-    scatter = ax.scatter(X_pca[:, 0], X_pca[:, 1], c=y_pred, cmap="coolwarm", alpha=0.7)
-    legend1 = ax.legend(*scatter.legend_elements(), title="Clases")
-    ax.add_artist(legend1)
-    st.pyplot(fig)
