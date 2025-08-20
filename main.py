@@ -66,12 +66,30 @@ X = data[features].values
 y = data[target].values
 
 # ===============================
-# Train-test split
+# Validación de variable objetivo
+# ===============================
+unique_classes = np.unique(y)
+
+if len(unique_classes) < 2:
+    st.error("❌ La variable objetivo debe tener al menos 2 clases diferentes.")
+    st.stop()
+elif len(unique_classes) > 20:
+    st.warning("⚠️ La variable objetivo tiene muchas clases. ¿Seguro que es un problema de clasificación?")
+
+# ===============================
+# Train-test split (con validación de stratify)
 # ===============================
 test_size = st.sidebar.slider("Proporción de Test (%)", 10, 50, 30, step=5)
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=test_size/100, random_state=42, stratify=y
-)
+
+try:
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size/100, random_state=42, stratify=y
+    )
+except ValueError:
+    st.warning("⚠️ No se pudo usar 'stratify' porque alguna clase es muy pequeña. Usando división normal.")
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size/100, random_state=42
+    )
 
 # Escalado
 scaler = StandardScaler()
@@ -137,7 +155,7 @@ if len(features) > 2:
     pca = PCA(n_components=2)
     X_pca = pca.fit_transform(X_test)
     fig, ax = plt.subplots()
-    scatter = ax.scatter(X_pca[:,0], X_pca[:,1], c=y_pred, cmap="coolwarm", alpha=0.7)
+    scatter = ax.scatter(X_pca[:, 0], X_pca[:, 1], c=y_pred, cmap="coolwarm", alpha=0.7)
     legend1 = ax.legend(*scatter.legend_elements(), title="Clases")
     ax.add_artist(legend1)
     st.pyplot(fig)
