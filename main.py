@@ -30,7 +30,7 @@ df["Target"] = y
 # Interfaz Streamlit
 # ----------------------------
 st.title("Comparación de Modelos de Clasificación")
-st.write("Se utiliza un dataset simulado con 300 muestras y 6 columnas.")
+st.write("Dataset simulado con 300 muestras y 6 columnas.")
 
 # Mostrar dataset
 if st.checkbox("Mostrar datos simulados"):
@@ -44,37 +44,56 @@ modelo = st.selectbox(
 )
 
 # División en train/test
+test_size = st.slider("Porcentaje de datos para prueba (%)", 10, 50, 30, step=5)
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.3, random_state=42, stratify=y
+    X, y, test_size=test_size/100, random_state=42, stratify=y
 )
 
 # ----------------------------
-# Selección del clasificador
+# Selección de hiperparámetros
 # ----------------------------
+st.subheader("Configuración de Hiperparámetros")
+
 if modelo == "Naive Bayes":
-    clf = GaussianNB()
+    var_smoothing = st.number_input("Var smoothing (escala de suavizado)", 
+                                     value=1e-9, format="%.1e")
+    clf = GaussianNB(var_smoothing=var_smoothing)
+
 elif modelo == "Árbol de Decisión":
-    clf = DecisionTreeClassifier(random_state=42)
+    max_depth = st.slider("Profundidad máxima", 1, 20, 5)
+    criterion = st.selectbox("Criterio de división", ["gini", "entropy", "log_loss"])
+    clf = DecisionTreeClassifier(max_depth=max_depth, criterion=criterion, random_state=42)
+
 elif modelo == "K-Vecinos Cercanos (KNN)":
-    clf = KNeighborsClassifier()
+    n_neighbors = st.slider("Número de vecinos (k)", 1, 20, 5)
+    weights = st.selectbox("Tipo de ponderación", ["uniform", "distance"])
+    clf = KNeighborsClassifier(n_neighbors=n_neighbors, weights=weights)
+
 elif modelo == "Máquina de Vectores de Soporte (SVC)":
-    clf = SVC(probability=True, random_state=42)
+    kernel = st.selectbox("Kernel", ["linear", "poly", "rbf", "sigmoid"])
+    C = st.slider("Parámetro C", 0.01, 10.0, 1.0)
+    gamma = st.selectbox("Gamma", ["scale", "auto"])
+    clf = SVC(kernel=kernel, C=C, gamma=gamma, probability=True, random_state=42)
+
 elif modelo == "Regresión Logística":
-    clf = LogisticRegression(max_iter=1000, random_state=42)
-
-# Entrenar
-clf.fit(X_train, y_train)
-y_pred = clf.predict(X_test)
+    penalty = st.selectbox("Tipo de regularización", ["l2", "l1", "elasticnet", "none"])
+    C = st.slider("Inverso de la regularización (C)", 0.01, 10.0, 1.0)
+    solver = st.selectbox("Solver", ["lbfgs", "liblinear", "saga", "newton-cg"])
+    clf = LogisticRegression(penalty=penalty, C=C, solver=solver,
+                             max_iter=1000, random_state=42)
 
 # ----------------------------
-# Resultados
+# Entrenamiento y resultados
 # ----------------------------
-accuracy = accuracy_score(y_test, y_pred)
-st.subheader("Resultados")
-st.write(f"**Exactitud (Accuracy):** {accuracy:.2f}")
+if st.button("Entrenar modelo"):
+    clf.fit(X_train, y_train)
+    y_pred = clf.predict(X_test)
 
-# Matriz de confusión
-cm = confusion_matrix(y_test, y_pred)
-fig, ax = plt.subplots()
-ConfusionMatrixDisplay(cm).plot(ax=ax, cmap="Blues")
-st.pyplot(fig)
+    accuracy = accuracy_score(y_test, y_pred)
+    st.subheader("Resultados")
+    st.write(f"**Exactitud (Accuracy):** {accuracy:.2f}")
+
+    cm = confusion_matrix(y_test, y_pred)
+    fig, ax = plt.subplots()
+    ConfusionMatrixDisplay(cm).plot(ax=ax, cmap="Blues")
+    st.pyplot(fig)
